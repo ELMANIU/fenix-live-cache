@@ -4,6 +4,12 @@ async fetch(request) {
 const url = new URL(request.url);
 
 
+/*
+===========================
+ CANALES
+===========================
+*/
+
 const canales = {
 
 history:
@@ -12,17 +18,29 @@ history:
 };
 
 
-//
-// PROXY GENERAL
-//
-if(url.pathname === "/proxy"){
+/*
+===========================
+ PROXY
+===========================
+*/
+
+if(url.pathname === "/proxy") {
+
 
 let target = url.searchParams.get("url");
 
+
 if(!target){
-return new Response("Sin URL",
-{status:400});
+
+return new Response(
+"URL faltante",
+{
+status:400
 }
+);
+
+}
+
 
 
 let cache = caches.default;
@@ -30,22 +48,42 @@ let cache = caches.default;
 let cacheKey = new Request(target);
 
 
+
+/*
+ CACHE SEGMENTOS
+*/
+
 let cached = await cache.match(cacheKey);
 
 
 if(cached){
+
 return cached;
+
 }
 
 
-let res = await fetch(target,{
+
+
+let response = await fetch(target,{
+
 headers:{
-"User-Agent":"Mozilla/5.0"
+
+"User-Agent":
+"Mozilla/5.0",
+
+"Referer":
+"https://cablered.iptvperu.tv/"
+
 }
+
 });
 
 
-let headers = new Headers(res.headers);
+
+
+let headers = new Headers(response.headers);
+
 
 
 headers.set(
@@ -55,13 +93,29 @@ headers.set(
 
 
 
-let type=headers.get("content-type") || "";
 
 
-if(type.includes("mpegurl")){
+let type =
+headers.get("content-type") || "";
 
 
-let text = await res.text();
+
+
+
+/*
+===========================
+ PLAYLIST M3U8
+===========================
+*/
+
+
+if(type.includes("mpegurl")
+|| target.includes(".m3u8")){
+
+
+let text =
+await response.text();
+
 
 
 let base =
@@ -72,31 +126,79 @@ target.lastIndexOf("/") + 1
 
 
 
-text=text.replace(
+
+
+text =
+text.replace(
 /(?!#)([^\s]+\.m3u8[^\s]*)/g,
-m=>{
-return "/proxy?url="+
-encodeURIComponent(base+m);
+
+(match)=>{
+
+
+let full =
+match.startsWith("http")
+?
+match
+:
+base + match;
+
+
+
+return "/proxy?url=" +
+encodeURIComponent(full);
+
+
 }
+
 );
 
 
-text=text.replace(
-/(?!#)([^\s]+\.ts)/g,
-m=>{
-return "/proxy?url="+
-encodeURIComponent(base+m);
+
+
+
+text =
+text.replace(
+/(?!#)([^\s]+\.ts[^\s]*)/g,
+
+(match)=>{
+
+
+let full =
+match.startsWith("http")
+?
+match
+:
+base + match;
+
+
+
+return "/proxy?url=" +
+encodeURIComponent(full);
+
+
 }
+
+);
+
+
+
+
+
+headers.set(
+"content-type",
+"application/vnd.apple.mpegurl"
 );
 
 
 headers.set(
 "cache-control",
-"no-cache"
+"no-cache,no-store"
 );
 
 
-let response=new Response(
+
+
+return new Response(
 text,
 {
 status:200,
@@ -105,110 +207,180 @@ headers
 );
 
 
-await cache.put(
-cacheKey,
-response.clone()
-);
-
-
-return response;
-
 
 }
 
 
-//
-// SEGMENTOS TS
-//
+
+
+
+/*
+===========================
+ SEGMENTOS TS
+===========================
+*/
+
+
 
 headers.set(
-"cache-control",
-"public,max-age=120"
+"content-type",
+"video/mp2t"
 );
 
 
-let response=new Response(
-res.body,
+headers.set(
+"cache-control",
+"public,max-age=60,s-maxage=60"
+);
+
+
+
+headers.delete(
+"content-length"
+);
+
+
+
+
+let tsResponse =
+new Response(
+response.body,
 {
-status:res.status,
+status:response.status,
 headers
 }
 );
 
 
+
 await cache.put(
 cacheKey,
-response.clone()
+tsResponse.clone()
 );
 
 
-return response;
+
+return tsResponse;
+
 
 
 }
 
 
 
-//
-// CANALES
-//
 
-let canal=url.pathname.replace("/","");
+/*
+===========================
+ CANAL DIRECTO
+===========================
+*/
+
+
+let canal =
+url.pathname
+.replace("/","");
+
 
 
 if(canales[canal]){
 
 
-let res=await fetch(
+let response =
+await fetch(
 canales[canal],
 {
+
 headers:{
-"User-Agent":"Mozilla/5.0"
+
+"User-Agent":
+"Mozilla/5.0",
+
+"Referer":
+"https://cablered.iptvperu.tv/"
+
 }
+
 }
 );
 
 
-let text=await res.text();
+
+let text =
+await response.text();
 
 
-let base=
-canales[canal].substring(
+
+
+let base =
+canales[canal]
+.substring(
 0,
 canales[canal].lastIndexOf("/") + 1
 );
 
 
 
-text=text.replace(
+
+text =
+text.replace(
 /(?!#)([^\s]+\.m3u8[^\s]*)/g,
-m=>{
-return "/proxy?url="+
-encodeURIComponent(base+m);
+
+(match)=>{
+
+
+let full =
+match.startsWith("http")
+?
+match
+:
+base + match;
+
+
+
+return "/proxy?url=" +
+encodeURIComponent(full);
+
+
 }
+
 );
+
+
 
 
 
 return new Response(
 text,
 {
+
 headers:{
+
 "content-type":
 "application/vnd.apple.mpegurl",
-"Access-Control-Allow-Origin":"*",
-"cache-control":"no-cache"
+
+"Access-Control-Allow-Origin":
+"*",
+
+"cache-control":
+"no-cache"
+
 }
+
 }
 );
 
 
+
 }
+
+
+
 
 
 return new Response(
-"Fenix Cache Worker OK"
+"Fenix Live Cache OK"
 );
+
 
 }
 
