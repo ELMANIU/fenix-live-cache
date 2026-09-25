@@ -1,240 +1,154 @@
 export default {
 async fetch(request, env, ctx) {
 
-
 const url = new URL(request.url);
 
-
-// =======================
-// CANALES
-// =======================
-
-const canales = {
-
-history:
-"https://cablered.iptvperu.tv:1936/cablered/history/chunks.m3u8",
-
-space:
-"https://cablered.iptvperu.tv:1936/cablered/space/chunks.m3u8"
-
-};
+const ORIGIN =
+"https://cablered.iptvperu.tv:1936/cablered/history/";
 
 
-// =======================
-// PEDIR CANAL
-// =======================
-
-let canal = url.pathname.split("/")[1];
-
-
-// =======================
-// PLAYLIST M3U8
-// =======================
+function cors(response){
+response.headers.set("Access-Control-Allow-Origin","*");
+response.headers.set("Access-Control-Allow-Headers","*");
+return response;
+}
 
 
-if(url.pathname.endsWith(".m3u8")){
+// HOME TEST
 
-
-let origen = canales[canal];
-
-
-if(!origen){
-
+if(url.pathname === "/"){
 return new Response(
-"Canal inexistente",
-{status:404}
+"FENIX CACHE ONLINE",
+{status:200}
 );
-
 }
 
 
+// PLAYLIST PRINCIPAL
 
-let respuesta = await fetch(origen,{
-headers:{
-"User-Agent":
-"Mozilla/5.0"
-}
-});
+if(url.pathname === "/history.m3u8"){
 
+const cacheKey = new Request(request.url);
 
+let cached = await caches.default.match(cacheKey);
 
-let texto = await respuesta.text();
-
-
-
-
-let base =
-origen.substring(
-0,
-origen.lastIndexOf("/")
-);
-
-
-
-// Convertir segmentos
-// sin romper HLS
-
-
-texto = texto
-.split("\n")
-.map(linea=>{
-
-
-if(
-linea &&
-!linea.startsWith("#")
-){
-
-
-if(linea.startsWith("http"))
-return linea;
-
-
-
-return base+"/"+linea;
-
-
+if(cached){
+return cors(cached);
 }
 
 
-return linea;
-
-
-})
-.join("\n");
-
-
-
-
-return new Response(
-texto,
+let playlist = await fetch(
+ORIGIN+"playlist.m3u8",
 {
 headers:{
-
-
-"Content-Type":
-"application/vnd.apple.mpegurl",
-
-
-"Access-Control-Allow-Origin":
-"*",
-
-
-"Cache-Control":
-"no-cache,no-store"
-
+"User-Agent":"Mozilla/5.0"
 }
-
 }
 );
 
 
-}
-
-
-
-
-// =======================
-// SEGMENTOS TS
-// =======================
-
-
-if(url.pathname==="/segment"){
-
-
-
-let destino =
-url.searchParams.get("url");
-
-
-
-if(!destino){
-
+if(!playlist.ok){
 return new Response(
-"missing url",
-{status:400}
+"ORIGIN ERROR",
+{status:500}
+);
+}
+
+
+let text = await playlist.text();
+
+
+// cambiar segmentos
+
+text=text.replace(
+/(?!#)(.*\.ts.*)/g,
+match=>{
+
+if(match.startsWith("http")){
+return "/history.ts?url="+encodeURIComponent(match);
+}
+
+return "/history.ts?url="+encodeURIComponent(
+ORIGIN+match
 );
 
 }
+);
 
 
-
-let cache =
-caches.default;
-
-
-
-let cacheKey =
-new Request(destino);
-
-
-
-let existe =
-await cache.match(cacheKey);
-
-
-
-if(existe){
-
-return existe;
-
-}
-
-
-
-let origen =
-await fetch(destino,{
-headers:{
-"User-Agent":
-"Mozilla/5.0"
-}
-});
-
-
-
-let nuevo =
-new Response(
-origen.body,
+let response=new Response(
+text,
 {
 headers:{
-
-"Content-Type":
-"video/mp2t",
-
-"Access-Control-Allow-Origin":
-"*",
-
-"Cache-Control":
-"public,max-age=20"
-
+"Content-Type":"application/vnd.apple.mpegurl",
+"Cache-Control":"public,max-age=5"
 }
-
 }
 );
-
 
 
 ctx.waitUntil(
-cache.put(
+caches.default.put(
 cacheKey,
-nuevo.clone()
+response.clone()
 )
 );
 
 
+return cors(response);
 
-return nuevo;
+}
 
+
+
+// SEGMENTOS TS
+
+
+if(url.pathname === "/history.ts"){
+
+const source=url.searchParams.get("url");
+
+
+if(!source){
+return new Response(
+"NO URL",
+{status:400}
+);
+}
+
+
+let response=await fetch(
+source,
+{
+headers:{
+"User-Agent":"Mozilla/5.0",
+"Referer":""
+}
+}
+);
+
+
+return cors(
+new Response(
+response.body,
+{
+headers:{
+"Content-Type":"video/mp2t",
+"Cache-Control":"no-store"
+}
+}
+)
+);
 
 }
 
 
 
 return new Response(
-"FENIX CACHE ONLINE"
+"NOT FOUND",
+{status:404}
 );
 
 
 }
-
 };
