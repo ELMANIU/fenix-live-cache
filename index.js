@@ -3,13 +3,12 @@ export default {
 
     const url = new URL(request.url);
 
-    // Permitir preflight
     if (request.method === "OPTIONS") {
       return new Response(null, {
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, OPTIONS",
-          "Access-Control-Allow-Headers": "*"
+        headers:{
+          "Access-Control-Allow-Origin":"*",
+          "Access-Control-Allow-Methods":"GET, OPTIONS",
+          "Access-Control-Allow-Headers":"*"
         }
       });
     }
@@ -17,75 +16,47 @@ export default {
 
     const originURL = url.searchParams.get("url");
 
-
-    if (!originURL) {
-      return new Response(
-        "Falta parametro url",
-        { status: 400 }
-      );
+    if(!originURL){
+      return new Response("Falta url",{status:400});
     }
 
 
-    let target;
-
-    try {
-      target = decodeURIComponent(originURL);
-    } catch {
-      target = originURL;
-    }
-
+    const target = decodeURIComponent(originURL);
 
 
     let response;
 
-    try {
+    try{
 
-      response = await fetch(target, {
-
-        headers: {
-          "User-Agent":
-          "Mozilla/5.0",
-          
-          "Accept":
-          "*/*",
-
-          "Referer":
-          ""
+      response = await fetch(target,{
+        headers:{
+          "User-Agent":"Mozilla/5.0",
+          "Accept":"*/*"
         }
-
       });
 
-
-    } catch(e) {
+    }catch(e){
 
       return new Response(
-        "Error conectando origen",
+        "Error origen",
         {status:502}
       );
 
     }
 
 
-
-    const contentType =
+    const type =
     response.headers.get("content-type") || "";
 
 
+    // PLAYLIST
 
-    /*
-       PLAYLIST HLS
-    */
-
-    if (
+    if(
       target.includes(".m3u8") ||
-      contentType.includes("mpegurl") ||
-      contentType.includes("apple")
-    ) {
+      type.includes("mpegurl")
+    ){
 
-
-      let playlist =
-      await response.text();
-
+      let text = await response.text();
 
 
       const base =
@@ -96,52 +67,32 @@ export default {
 
 
 
-      playlist = playlist.replace(
+      text = text.replace(
         /(?!#)([^\s]+\.m3u8[^\s]*)/g,
-        (match)=>{
+        function(match){
+
+          let full = match.startsWith("http")
+          ? match
+          : base + "/" + match;
 
 
-          let full;
-
-
-          if(match.startsWith("http")){
-            full = match;
-          }
-          else{
-            full =
-            base + "/" + match;
-          }
-
-
-          return
-          `/proxy?url=${encodeURIComponent(full)}`;
+          return "/proxy?url=" + encodeURIComponent(full);
 
         }
       );
 
 
 
-
-      playlist = playlist.replace(
+      text = text.replace(
         /(?!#)([^\s]+\.ts[^\s]*)/g,
-        (match)=>{
+        function(match){
+
+          let full = match.startsWith("http")
+          ? match
+          : base + "/" + match;
 
 
-          let full;
-
-
-          if(match.startsWith("http")){
-            full = match;
-          }
-          else{
-            full =
-            base + "/" + match;
-          }
-
-
-          return
-          `/proxy?url=${encodeURIComponent(full)}`;
-
+          return "/proxy?url=" + encodeURIComponent(full);
 
         }
       );
@@ -149,75 +100,45 @@ export default {
 
 
       return new Response(
-        playlist,
+        text,
         {
-
-          headers: {
-
+          headers:{
             "Content-Type":
             "application/vnd.apple.mpegurl",
 
-
-            "Access-Control-Allow-Origin":
-            "*",
-
+            "Access-Control-Allow-Origin":"*",
 
             "Cache-Control":
-            "no-store, no-cache, must-revalidate"
-
-
+            "no-store"
           }
-
         }
-
       );
-
 
     }
 
 
 
-    /*
-       SEGMENTOS TS
-    */
+    // SEGMENTOS TS
 
 
     return new Response(
       response.body,
       {
-
-        headers: {
-
+        headers:{
 
           "Content-Type":
-          contentType ||
-          "video/mp2t",
+          type || "video/mp2t",
 
+          "Access-Control-Allow-Origin":"*",
 
-          "Access-Control-Allow-Origin":
-          "*",
-
-
-          "Access-Control-Allow-Headers":
-          "Range",
-
-
-          "Accept-Ranges":
-          "bytes",
-
+          "Accept-Ranges":"bytes",
 
           "Cache-Control":
-          "public, max-age=120"
-
-
+          "public,max-age=120"
 
         }
-
       }
-
     );
-
-
 
   }
 }
