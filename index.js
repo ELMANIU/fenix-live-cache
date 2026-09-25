@@ -1,9 +1,10 @@
 export default {
-async fetch(request, env) {
+async fetch(request) {
 
 const url = new URL(request.url);
 
-const channels = {
+
+const canales = {
 
 history:
 "https://cablered.iptvperu.tv:1936/cablered/history/playlist.m3u8"
@@ -11,72 +12,204 @@ history:
 };
 
 
-let key = url.pathname.replace("/","");
+//
+// PROXY GENERAL
+//
+if(url.pathname === "/proxy"){
 
-if(!channels[key]){
-return new Response("Canal no encontrado",
-{status:404});
+let target = url.searchParams.get("url");
+
+if(!target){
+return new Response("Sin URL",
+{status:400});
 }
 
 
-let origin = channels[key];
+let cache = caches.default;
+
+let cacheKey = new Request(target);
 
 
-let response = await fetch(origin,{
+let cached = await cache.match(cacheKey);
+
+
+if(cached){
+return cached;
+}
+
+
+let res = await fetch(target,{
 headers:{
 "User-Agent":"Mozilla/5.0"
 }
 });
 
 
-let type=response.headers.get("content-type") || "";
+let headers = new Headers(res.headers);
+
+
+headers.set(
+"Access-Control-Allow-Origin",
+"*"
+);
+
+
+
+let type=headers.get("content-type") || "";
 
 
 if(type.includes("mpegurl")){
 
 
-let text = await response.text();
+let text = await res.text();
 
 
-let base = origin.substring(
+let base =
+target.substring(
 0,
-origin.lastIndexOf("/") + 1
+target.lastIndexOf("/") + 1
 );
 
 
-// convertir rutas relativas
-text=text.replace(
-/(?!#)([a-zA-Z0-9_\-]+\.m3u8[^\s]*)/g,
-match=>{
-return "/proxy?url="+
-encodeURIComponent(base+match);
-});
-
 
 text=text.replace(
-/(?!#)([a-zA-Z0-9_\-]+\.ts)/g,
-match=>{
+/(?!#)([^\s]+\.m3u8[^\s]*)/g,
+m=>{
 return "/proxy?url="+
-encodeURIComponent(base+match);
-});
-
-
-return new Response(text,{
-headers:{
-"content-type":"application/vnd.apple.mpegurl",
-"cache-control":"no-cache",
-"access-control-allow-origin":"*"
+encodeURIComponent(base+m);
 }
-});
+);
 
 
+text=text.replace(
+/(?!#)([^\s]+\.ts)/g,
+m=>{
+return "/proxy?url="+
+encodeURIComponent(base+m);
 }
+);
 
 
-// si es segmento
+headers.set(
+"cache-control",
+"no-cache"
+);
+
+
+let response=new Response(
+text,
+{
+status:200,
+headers
+}
+);
+
+
+await cache.put(
+cacheKey,
+response.clone()
+);
 
 
 return response;
 
+
 }
+
+
+//
+// SEGMENTOS TS
+//
+
+headers.set(
+"cache-control",
+"public,max-age=120"
+);
+
+
+let response=new Response(
+res.body,
+{
+status:res.status,
+headers
+}
+);
+
+
+await cache.put(
+cacheKey,
+response.clone()
+);
+
+
+return response;
+
+
+}
+
+
+
+//
+// CANALES
+//
+
+let canal=url.pathname.replace("/","");
+
+
+if(canales[canal]){
+
+
+let res=await fetch(
+canales[canal],
+{
+headers:{
+"User-Agent":"Mozilla/5.0"
+}
+}
+);
+
+
+let text=await res.text();
+
+
+let base=
+canales[canal].substring(
+0,
+canales[canal].lastIndexOf("/") + 1
+);
+
+
+
+text=text.replace(
+/(?!#)([^\s]+\.m3u8[^\s]*)/g,
+m=>{
+return "/proxy?url="+
+encodeURIComponent(base+m);
+}
+);
+
+
+
+return new Response(
+text,
+{
+headers:{
+"content-type":
+"application/vnd.apple.mpegurl",
+"Access-Control-Allow-Origin":"*",
+"cache-control":"no-cache"
+}
+}
+);
+
+
+}
+
+
+return new Response(
+"Fenix Cache Worker OK"
+);
+
+}
+
 }
