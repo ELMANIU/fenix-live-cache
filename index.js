@@ -3,385 +3,129 @@ async fetch(request) {
 
 const url = new URL(request.url);
 
+const origin = url.searchParams.get("url");
 
-/*
-===========================
- CANALES
-===========================
-*/
-
-const canales = {
-
-history:
-"https://cablered.iptvperu.tv:1936/cablered/history/playlist.m3u8"
-
-};
-
-
-/*
-===========================
- PROXY
-===========================
-*/
-
-if(url.pathname === "/proxy") {
-
-
-let target = url.searchParams.get("url");
-
-
-if(!target){
-
-return new Response(
-"URL faltante",
-{
-status:400
-}
-);
-
+if(!origin){
+return new Response("Falta URL",{status:400});
 }
 
 
-
-let cache = caches.default;
-
-let cacheKey = new Request(target);
+const target = decodeURIComponent(origin);
 
 
+let response;
 
-/*
- CACHE SEGMENTOS
-*/
+try{
 
-let cached = await cache.match(cacheKey);
-
-
-if(cached){
-
-return cached;
-
-}
-
-
-
-
-let response = await fetch(target,{
-
+response = await fetch(target,{
 headers:{
-
 "User-Agent":
 "Mozilla/5.0",
-
-"Referer":
-"https://cablered.iptvperu.tv/"
-
+"Accept":
+"*/*"
 }
-
 });
 
+}catch(e){
 
-
-
-let headers = new Headers(response.headers);
-
-
-
-headers.set(
-"Access-Control-Allow-Origin",
-"*"
+return new Response(
+"Error origen",
+{status:502}
 );
 
-
+}
 
 
 
 let type =
-headers.get("content-type") || "";
+response.headers.get("content-type") || "";
 
 
+// HLS MASTER / PLAYLIST
+
+if(
+target.includes(".m3u8") ||
+type.includes("mpegurl")
+){
+
+let text = await response.text();
 
 
-
-/*
-===========================
- PLAYLIST M3U8
-===========================
-*/
-
-
-if(type.includes("mpegurl")
-|| target.includes(".m3u8")){
-
-
-let text =
-await response.text();
-
-
+// convertir rutas relativas
 
 let base =
 target.substring(
 0,
-target.lastIndexOf("/") + 1
+target.lastIndexOf("/")
 );
 
 
+text=text.replace(
+/(?!#)([^"\n]+\.m3u8[^"\n]*)/g,
+match=>{
 
+if(match.startsWith("http"))
+return `/proxy?url=${encodeURIComponent(match)}`;
 
-
-text =
-text.replace(
-/(?!#)([^\s]+\.m3u8[^\s]*)/g,
-
-(match)=>{
-
-
-let full =
-match.startsWith("http")
-?
-match
-:
-base + match;
-
-
-
-return "/proxy?url=" +
-encodeURIComponent(full);
-
-
-}
-
-);
-
-
-
-
-
-text =
-text.replace(
-/(?!#)([^\s]+\.ts[^\s]*)/g,
-
-(match)=>{
-
-
-let full =
-match.startsWith("http")
-?
-match
-:
-base + match;
-
-
-
-return "/proxy?url=" +
-encodeURIComponent(full);
-
-
-}
-
-);
-
-
-
-
-
-headers.set(
-"content-type",
-"application/vnd.apple.mpegurl"
-);
-
-
-headers.set(
-"cache-control",
-"no-cache,no-store"
-);
-
-
-
-
-return new Response(
-text,
-{
-status:200,
-headers
-}
-);
-
-
-
-}
-
-
-
-
-
-/*
-===========================
- SEGMENTOS TS
-===========================
-*/
-
-
-
-headers.set(
-"content-type",
-"video/mp2t"
-);
-
-
-headers.set(
-"cache-control",
-"public,max-age=60,s-maxage=60"
-);
-
-
-
-headers.delete(
-"content-length"
-);
-
-
-
-
-let tsResponse =
-new Response(
-response.body,
-{
-status:response.status,
-headers
-}
-);
-
-
-
-await cache.put(
-cacheKey,
-tsResponse.clone()
-);
-
-
-
-return tsResponse;
-
-
-
-}
-
-
-
-
-/*
-===========================
- CANAL DIRECTO
-===========================
-*/
-
-
-let canal =
-url.pathname
-.replace("/","");
-
-
-
-if(canales[canal]){
-
-
-let response =
-await fetch(
-canales[canal],
-{
-
-headers:{
-
-"User-Agent":
-"Mozilla/5.0",
-
-"Referer":
-"https://cablered.iptvperu.tv/"
-
-}
+return `/proxy?url=${encodeURIComponent(base+"/"+match)}`;
 
 }
 );
 
 
+text=text.replace(
+/(?!#)([^"\n]+\.ts[^"\n]*)/g,
+match=>{
 
-let text =
-await response.text();
+if(match.startsWith("http"))
+return `/proxy?url=${encodeURIComponent(match)}`;
 
-
-
-
-let base =
-canales[canal]
-.substring(
-0,
-canales[canal].lastIndexOf("/") + 1
-);
-
-
-
-
-text =
-text.replace(
-/(?!#)([^\s]+\.m3u8[^\s]*)/g,
-
-(match)=>{
-
-
-let full =
-match.startsWith("http")
-?
-match
-:
-base + match;
-
-
-
-return "/proxy?url=" +
-encodeURIComponent(full);
-
+return `/proxy?url=${encodeURIComponent(base+"/"+match)}`;
 
 }
-
 );
 
 
-
-
-
-return new Response(
-text,
-{
+return new Response(text,{
 
 headers:{
 
 "content-type":
 "application/vnd.apple.mpegurl",
 
-"Access-Control-Allow-Origin":
-"*",
+"Access-Control-Allow-Origin":"*",
 
-"cache-control":
-"no-cache"
-
-}
+"Cache-Control":
+"no-store"
 
 }
-);
 
-
+});
 
 }
 
 
-
+// SEGMENTOS TS
 
 
 return new Response(
-"Fenix Live Cache OK"
-);
+response.body,
+{
 
+headers:{
+
+"content-type":
+type || "video/mp2t",
+
+"Access-Control-Allow-Origin":"*",
+
+"Cache-Control":
+"public,max-age=60"
 
 }
 
+});
+
+
+}
 }
