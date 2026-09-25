@@ -1,140 +1,121 @@
 export default {
-async fetch(request, env) {
+async fetch(request) {
 
 const url = new URL(request.url);
 
 const canales = {
 
 history:
-"https://cablered.iptvperu.tv:1936/cablered/history/chunks.m3u8",
-
-space:
-"https://cablered.iptvperu.tv:1936/cablered/space/chunks.m3u8",
-
-tnt:
-"https://cablered.iptvperu.tv:1936/cablered/tnt/chunks.m3u8",
-
-cinecanal:
-"https://cablered.iptvperu.tv:1936/cablered/cinecanal/chunks.m3u8"
+"https://cablered.iptvperu.tv:1936/cablered/history/chunks.m3u8"
 
 };
 
 
-let canal=url.pathname.split("/")[1];
+let canal = url.pathname.split("/")[1];
 
 
-// =====================
-// PLAYLIST PRINCIPAL
-// =====================
+// PLAYLIST
 
-if(url.pathname.includes(".m3u8")){
+if(url.pathname.endsWith(".m3u8")){
 
 
 let origen = canales[canal];
 
 
 if(!origen){
-
-return new Response(
-"Canal no encontrado",
-{status:404}
-);
-
+return new Response("Canal no existe",{status:404});
 }
 
 
 
-let r=await fetch(origen,{
-headers:{
-"User-Agent":"Mozilla/5.0"
-}
-});
+let respuesta = await fetch(origen);
 
-
-let texto=await r.text();
+let m3u8 = await respuesta.text();
 
 
 
-// Reescribir TS
-
-let base=origen.substring(
+let base = origen.substring(
 0,
 origen.lastIndexOf("/")
 );
 
 
 
-texto=texto.replace(
-/^(?!#)(.*\.ts.*)$/gm,
-line=>{
-
-if(line.startsWith("#"))
-return line;
-
-
-return `/proxy?url=${encodeURIComponent(base+"/"+line)}`;
-
-});
+let lineas = m3u8.split("\n");
 
 
 
-return new Response(texto,{
+let salida = lineas.map(linea=>{
+
+
+if(
+linea &&
+!linea.startsWith("#") &&
+linea.includes(".ts")
+){
+
+return `/proxy?url=${encodeURIComponent(base+"/"+linea)}`;
+
+}
+
+
+return linea;
+
+
+}).join("\n");
+
+
+
+return new Response(
+salida,
+{
 headers:{
 "Content-Type":"application/vnd.apple.mpegurl",
 "Access-Control-Allow-Origin":"*",
-"Cache-Control":"no-cache"
+"Cache-Control":"no-store"
 }
-});
+}
+);
 
 
 }
 
 
-// =====================
+
 // SEGMENTOS TS
-// =====================
 
-
-if(url.pathname.includes("/proxy")){
+if(url.pathname==="/proxy"){
 
 
 let destino=url.searchParams.get("url");
 
 
 if(!destino)
-return new Response("no url",{status:400});
+return new Response("sin url",{status:400});
 
 
 
-let r=await fetch(destino,{
-headers:{
-"User-Agent":"Mozilla/5.0"
-}
-});
-
-
-
-return new Response(r.body,{
-headers:{
-"Content-Type":"video/mp2t",
-"Access-Control-Allow-Origin":"*",
-
-// CACHE IMPORTANTE
-"Cache-Control":
-"public,max-age=20"
-}
-
-});
-
-
-}
+let ts=await fetch(destino);
 
 
 
 return new Response(
-"Fenix Live Cache OK"
+ts.body,
+{
+headers:{
+"Content-Type":"video/mp2t",
+"Access-Control-Allow-Origin":"*",
+"Cache-Control":"public,max-age=30"
+}
+}
 );
 
+
+}
+
+
+
+return new Response("FENIX CACHE ONLINE");
 
 }
 
