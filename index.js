@@ -1,144 +1,279 @@
 export default {
 async fetch(request, env, ctx) {
 
-const url = new URL(request.url);
+const requestURL = new URL(request.url);
 
-const ORIGIN =
-"https://cablered.iptvperu.tv:1936/cablered/history/";
 
+// ===============================
+// CONFIGURA TUS CANALES AQUÍ
+// ===============================
+
+const CHANNELS = {
+
+history:
+"https://cablered.iptvperu.tv:1936/cablered/history/playlist.m3u8",
+
+};
+
+
+// ===============================
+// CORS
+// ===============================
 
 function cors(response){
-response.headers.set("Access-Control-Allow-Origin","*");
-response.headers.set("Access-Control-Allow-Headers","*");
+
+response.headers.set(
+"Access-Control-Allow-Origin",
+"*"
+);
+
+response.headers.set(
+"Access-Control-Allow-Headers",
+"*"
+);
+
 return response;
+
 }
 
 
-// HOME TEST
+// ===============================
+// TEST
+// ===============================
 
-if(url.pathname === "/"){
+if(requestURL.pathname === "/"){
+
 return new Response(
 "FENIX CACHE ONLINE",
-{status:200}
+{
+status:200
+}
 );
+
 }
 
 
-// PLAYLIST PRINCIPAL
+// ===============================
+// PLAYLIST
+// ejemplo:
+// /history.m3u8
+// ===============================
 
-if(url.pathname === "/history.m3u8"){
 
-const cacheKey = new Request(request.url);
+let match =
+requestURL.pathname.match(
+/\/([^\/]+)\.m3u8$/
+);
 
-let cached = await caches.default.match(cacheKey);
+
+if(match){
+
+let channel = match[1];
+
+
+if(!CHANNELS[channel]){
+
+return new Response(
+"CHANNEL NOT FOUND",
+{
+status:404
+}
+);
+
+}
+
+
+let cache =
+caches.default;
+
+
+let cacheKey =
+new Request(request.url);
+
+
+
+let cached =
+await cache.match(cacheKey);
+
+
 
 if(cached){
+
 return cors(cached);
+
 }
 
 
-let playlist = await fetch(
-ORIGIN+"playlist.m3u8",
+
+let origin =
+await fetch(
+CHANNELS[channel],
 {
 headers:{
-"User-Agent":"Mozilla/5.0"
+"User-Agent":
+"Mozilla/5.0"
 }
 }
 );
 
 
-if(!playlist.ok){
+
+if(!origin.ok){
+
 return new Response(
 "ORIGIN ERROR",
-{status:500}
-);
-}
-
-
-let text = await playlist.text();
-
-
-// cambiar segmentos
-
-text=text.replace(
-/(?!#)(.*\.ts.*)/g,
-match=>{
-
-if(match.startsWith("http")){
-return "/history.ts?url="+encodeURIComponent(match);
-}
-
-return "/history.ts?url="+encodeURIComponent(
-ORIGIN+match
-);
-
+{
+status:502
 }
 );
 
+}
 
-let response=new Response(
-text,
+
+
+let playlist =
+await origin.text();
+
+
+
+// convertir segmentos relativos
+
+let base =
+CHANNELS[channel]
+.substring(
+0,
+CHANNELS[channel].lastIndexOf("/")
++1
+);
+
+
+
+playlist =
+playlist
+.split("\n")
+.map(line=>{
+
+
+if(
+line &&
+!line.startsWith("#")
+){
+
+let segment =
+line.startsWith("http")
+?
+line
+:
+base+line;
+
+
+
+return "/segment.ts?url="
++
+encodeURIComponent(segment);
+
+}
+
+
+return line;
+
+
+})
+.join("\n");
+
+
+
+let response =
+new Response(
+playlist,
 {
 headers:{
-"Content-Type":"application/vnd.apple.mpegurl",
-"Cache-Control":"public,max-age=5"
+"Content-Type":
+"application/vnd.apple.mpegurl",
+
+"Cache-Control":
+"public,max-age=5"
 }
 }
 );
+
 
 
 ctx.waitUntil(
-caches.default.put(
+cache.put(
 cacheKey,
 response.clone()
 )
 );
 
 
+
 return cors(response);
+
+
 
 }
 
 
 
+// ===============================
 // SEGMENTOS TS
+// ===============================
 
 
-if(url.pathname === "/history.ts"){
+if(
+requestURL.pathname === "/segment.ts"
+){
 
-const source=url.searchParams.get("url");
+
+let source =
+requestURL.searchParams.get(
+"url"
+);
+
 
 
 if(!source){
+
 return new Response(
-"NO URL",
-{status:400}
+"NO SOURCE",
+{
+status:400
+}
 );
+
 }
 
 
-let response=await fetch(
+
+let ts =
+await fetch(
 source,
 {
 headers:{
-"User-Agent":"Mozilla/5.0",
-"Referer":""
+"User-Agent":
+"Mozilla/5.0"
 }
 }
 );
+
 
 
 return cors(
 new Response(
-response.body,
+ts.body,
 {
 headers:{
-"Content-Type":"video/mp2t",
-"Cache-Control":"no-store"
+"Content-Type":
+"video/mp2t",
+
+"Cache-Control":
+"no-store"
 }
 }
 )
 );
+
 
 }
 
@@ -146,8 +281,11 @@ headers:{
 
 return new Response(
 "NOT FOUND",
-{status:404}
+{
+status:404
+}
 );
+
 
 
 }
