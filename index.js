@@ -1,131 +1,223 @@
 export default {
-async fetch(request) {
+  async fetch(request) {
 
-const url = new URL(request.url);
+    const url = new URL(request.url);
 
-const origin = url.searchParams.get("url");
-
-if(!origin){
-return new Response("Falta URL",{status:400});
-}
-
-
-const target = decodeURIComponent(origin);
-
-
-let response;
-
-try{
-
-response = await fetch(target,{
-headers:{
-"User-Agent":
-"Mozilla/5.0",
-"Accept":
-"*/*"
-}
-});
-
-}catch(e){
-
-return new Response(
-"Error origen",
-{status:502}
-);
-
-}
+    // Permitir preflight
+    if (request.method === "OPTIONS") {
+      return new Response(null, {
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, OPTIONS",
+          "Access-Control-Allow-Headers": "*"
+        }
+      });
+    }
 
 
-
-let type =
-response.headers.get("content-type") || "";
+    const originURL = url.searchParams.get("url");
 
 
-// HLS MASTER / PLAYLIST
-
-if(
-target.includes(".m3u8") ||
-type.includes("mpegurl")
-){
-
-let text = await response.text();
+    if (!originURL) {
+      return new Response(
+        "Falta parametro url",
+        { status: 400 }
+      );
+    }
 
 
-// convertir rutas relativas
+    let target;
 
-let base =
-target.substring(
-0,
-target.lastIndexOf("/")
-);
-
-
-text=text.replace(
-/(?!#)([^"\n]+\.m3u8[^"\n]*)/g,
-match=>{
-
-if(match.startsWith("http"))
-return `/proxy?url=${encodeURIComponent(match)}`;
-
-return `/proxy?url=${encodeURIComponent(base+"/"+match)}`;
-
-}
-);
+    try {
+      target = decodeURIComponent(originURL);
+    } catch {
+      target = originURL;
+    }
 
 
-text=text.replace(
-/(?!#)([^"\n]+\.ts[^"\n]*)/g,
-match=>{
 
-if(match.startsWith("http"))
-return `/proxy?url=${encodeURIComponent(match)}`;
+    let response;
 
-return `/proxy?url=${encodeURIComponent(base+"/"+match)}`;
+    try {
 
-}
-);
+      response = await fetch(target, {
 
+        headers: {
+          "User-Agent":
+          "Mozilla/5.0",
+          
+          "Accept":
+          "*/*",
 
-return new Response(text,{
+          "Referer":
+          ""
+        }
 
-headers:{
-
-"content-type":
-"application/vnd.apple.mpegurl",
-
-"Access-Control-Allow-Origin":"*",
-
-"Cache-Control":
-"no-store"
-
-}
-
-});
-
-}
+      });
 
 
-// SEGMENTOS TS
+    } catch(e) {
+
+      return new Response(
+        "Error conectando origen",
+        {status:502}
+      );
+
+    }
 
 
-return new Response(
-response.body,
-{
 
-headers:{
-
-"content-type":
-type || "video/mp2t",
-
-"Access-Control-Allow-Origin":"*",
-
-"Cache-Control":
-"public,max-age=60"
-
-}
-
-});
+    const contentType =
+    response.headers.get("content-type") || "";
 
 
-}
+
+    /*
+       PLAYLIST HLS
+    */
+
+    if (
+      target.includes(".m3u8") ||
+      contentType.includes("mpegurl") ||
+      contentType.includes("apple")
+    ) {
+
+
+      let playlist =
+      await response.text();
+
+
+
+      const base =
+      target.substring(
+        0,
+        target.lastIndexOf("/")
+      );
+
+
+
+      playlist = playlist.replace(
+        /(?!#)([^\s]+\.m3u8[^\s]*)/g,
+        (match)=>{
+
+
+          let full;
+
+
+          if(match.startsWith("http")){
+            full = match;
+          }
+          else{
+            full =
+            base + "/" + match;
+          }
+
+
+          return
+          `/proxy?url=${encodeURIComponent(full)}`;
+
+        }
+      );
+
+
+
+
+      playlist = playlist.replace(
+        /(?!#)([^\s]+\.ts[^\s]*)/g,
+        (match)=>{
+
+
+          let full;
+
+
+          if(match.startsWith("http")){
+            full = match;
+          }
+          else{
+            full =
+            base + "/" + match;
+          }
+
+
+          return
+          `/proxy?url=${encodeURIComponent(full)}`;
+
+
+        }
+      );
+
+
+
+      return new Response(
+        playlist,
+        {
+
+          headers: {
+
+            "Content-Type":
+            "application/vnd.apple.mpegurl",
+
+
+            "Access-Control-Allow-Origin":
+            "*",
+
+
+            "Cache-Control":
+            "no-store, no-cache, must-revalidate"
+
+
+          }
+
+        }
+
+      );
+
+
+    }
+
+
+
+    /*
+       SEGMENTOS TS
+    */
+
+
+    return new Response(
+      response.body,
+      {
+
+        headers: {
+
+
+          "Content-Type":
+          contentType ||
+          "video/mp2t",
+
+
+          "Access-Control-Allow-Origin":
+          "*",
+
+
+          "Access-Control-Allow-Headers":
+          "Range",
+
+
+          "Accept-Ranges":
+          "bytes",
+
+
+          "Cache-Control":
+          "public, max-age=120"
+
+
+
+        }
+
+      }
+
+    );
+
+
+
+  }
 }
