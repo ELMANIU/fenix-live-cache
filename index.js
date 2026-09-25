@@ -1,144 +1,141 @@
 export default {
-  async fetch(request) {
+async fetch(request, env) {
 
-    const url = new URL(request.url);
+const url = new URL(request.url);
 
-    if (request.method === "OPTIONS") {
-      return new Response(null, {
-        headers:{
-          "Access-Control-Allow-Origin":"*",
-          "Access-Control-Allow-Methods":"GET, OPTIONS",
-          "Access-Control-Allow-Headers":"*"
-        }
-      });
-    }
+const canales = {
 
+history:
+"https://cablered.iptvperu.tv:1936/cablered/history/chunks.m3u8",
 
-    const originURL = url.searchParams.get("url");
+space:
+"https://cablered.iptvperu.tv:1936/cablered/space/chunks.m3u8",
 
-    if(!originURL){
-      return new Response("Falta url",{status:400});
-    }
+tnt:
+"https://cablered.iptvperu.tv:1936/cablered/tnt/chunks.m3u8",
 
+cinecanal:
+"https://cablered.iptvperu.tv:1936/cablered/cinecanal/chunks.m3u8"
 
-    const target = decodeURIComponent(originURL);
+};
 
 
-    let response;
-
-    try{
-
-      response = await fetch(target,{
-        headers:{
-          "User-Agent":"Mozilla/5.0",
-          "Accept":"*/*"
-        }
-      });
-
-    }catch(e){
-
-      return new Response(
-        "Error origen",
-        {status:502}
-      );
-
-    }
+let canal=url.pathname.split("/")[1];
 
 
-    const type =
-    response.headers.get("content-type") || "";
+// =====================
+// PLAYLIST PRINCIPAL
+// =====================
+
+if(url.pathname.includes(".m3u8")){
 
 
-    // PLAYLIST
-
-    if(
-      target.includes(".m3u8") ||
-      type.includes("mpegurl")
-    ){
-
-      let text = await response.text();
+let origen = canales[canal];
 
 
-      const base =
-      target.substring(
-        0,
-        target.lastIndexOf("/")
-      );
+if(!origen){
 
+return new Response(
+"Canal no encontrado",
+{status:404}
+);
 
-
-      text = text.replace(
-        /(?!#)([^\s]+\.m3u8[^\s]*)/g,
-        function(match){
-
-          let full = match.startsWith("http")
-          ? match
-          : base + "/" + match;
-
-
-          return "/proxy?url=" + encodeURIComponent(full);
-
-        }
-      );
-
-
-
-      text = text.replace(
-        /(?!#)([^\s]+\.ts[^\s]*)/g,
-        function(match){
-
-          let full = match.startsWith("http")
-          ? match
-          : base + "/" + match;
-
-
-          return "/proxy?url=" + encodeURIComponent(full);
-
-        }
-      );
-
-
-
-      return new Response(
-        text,
-        {
-          headers:{
-            "Content-Type":
-            "application/vnd.apple.mpegurl",
-
-            "Access-Control-Allow-Origin":"*",
-
-            "Cache-Control":
-            "no-store"
-          }
-        }
-      );
-
-    }
-
-
-
-    // SEGMENTOS TS
-
-
-    return new Response(
-      response.body,
-      {
-        headers:{
-
-          "Content-Type":
-          type || "video/mp2t",
-
-          "Access-Control-Allow-Origin":"*",
-
-          "Accept-Ranges":"bytes",
-
-          "Cache-Control":
-          "public,max-age=120"
-
-        }
-      }
-    );
-
-  }
 }
+
+
+
+let r=await fetch(origen,{
+headers:{
+"User-Agent":"Mozilla/5.0"
+}
+});
+
+
+let texto=await r.text();
+
+
+
+// Reescribir TS
+
+let base=origen.substring(
+0,
+origen.lastIndexOf("/")
+);
+
+
+
+texto=texto.replace(
+/^(?!#)(.*\.ts.*)$/gm,
+line=>{
+
+if(line.startsWith("#"))
+return line;
+
+
+return `/proxy?url=${encodeURIComponent(base+"/"+line)}`;
+
+});
+
+
+
+return new Response(texto,{
+headers:{
+"Content-Type":"application/vnd.apple.mpegurl",
+"Access-Control-Allow-Origin":"*",
+"Cache-Control":"no-cache"
+}
+});
+
+
+}
+
+
+// =====================
+// SEGMENTOS TS
+// =====================
+
+
+if(url.pathname.includes("/proxy")){
+
+
+let destino=url.searchParams.get("url");
+
+
+if(!destino)
+return new Response("no url",{status:400});
+
+
+
+let r=await fetch(destino,{
+headers:{
+"User-Agent":"Mozilla/5.0"
+}
+});
+
+
+
+return new Response(r.body,{
+headers:{
+"Content-Type":"video/mp2t",
+"Access-Control-Allow-Origin":"*",
+
+// CACHE IMPORTANTE
+"Cache-Control":
+"public,max-age=20"
+}
+
+});
+
+
+}
+
+
+
+return new Response(
+"Fenix Live Cache OK"
+);
+
+
+}
+
+};
